@@ -1,10 +1,6 @@
 "use client";
+import Link from 'next/link';
 import { type BoardingPool, useCountdown } from '../../hooks/useBoarding';
-
-interface BoardingCardProps {
-  pool: BoardingPool;
-  onClick: () => void;
-}
 
 const STATUS_BADGE: Record<string, { label: string; color: string }> = {
   active:    { label: 'LIVE',     color: 'text-primary bg-primary/10 border-primary/25' },
@@ -13,15 +9,21 @@ const STATUS_BADGE: Record<string, { label: string; color: string }> = {
   launched:  { label: 'LAUNCHED', color: 'text-[#a78bfa] bg-[#a78bfa]/10 border-[#a78bfa]/25' },
 };
 
-export default function BoardingCard({ pool, onClick }: BoardingCardProps) {
+interface BoardingCardProps {
+  pool: BoardingPool;
+}
+
+export default function BoardingCard({ pool }: BoardingCardProps) {
   const timeLeft = useCountdown(pool.deadline);
   const progress = (pool.totalDeposited / pool.hardCap) * 100;
   const badge = STATUS_BADGE[pool.status] || STATUS_BADGE.active;
+  const chain = pool.chain || 'sol';
+  const currency = chain === 'base' ? 'ETH' : 'SOL';
 
   return (
-    <div
-      onClick={onClick}
-      className="group p-5 bg-bg-glass border border-[rgba(136,192,255,0.08)] rounded-xl cursor-pointer transition-all duration-300 hover:border-primary/30 hover:shadow-[0_0_40px_rgba(136,192,255,0.08)] hover:-translate-y-0.5"
+    <Link
+      href={`/boarding/${chain}/${pool.publicKey}`}
+      className="group block p-5 bg-bg-glass border border-[rgba(136,192,255,0.08)] rounded-xl no-underline transition-all duration-300 hover:border-primary/30 hover:shadow-[0_0_40px_rgba(136,192,255,0.08)] hover:-translate-y-0.5"
     >
       {/* Top row: icon + name + badges */}
       <div className="flex justify-between items-start mb-4">
@@ -35,6 +37,13 @@ export default function BoardingCard({ pool, onClick }: BoardingCardProps) {
           </div>
         </div>
         <div className="flex gap-1.5">
+          <span className={`px-2 py-0.5 rounded text-[8px] tracking-[1px] border ${
+            chain === 'base'
+              ? 'text-[#3b82f6] bg-[#3b82f6]/8 border-[#3b82f6]/20'
+              : 'text-[#9945ff] bg-[#9945ff]/8 border-[#9945ff]/20'
+          }`}>
+            {chain === 'base' ? 'BASE' : 'SOL'}
+          </span>
           {pool.access === 'crew' && (
             <span className="px-2 py-0.5 rounded text-[8px] tracking-[1px] border text-[#34d399] bg-[#34d399]/8 border-[#34d399]/20">
               CREW
@@ -50,7 +59,7 @@ export default function BoardingCard({ pool, onClick }: BoardingCardProps) {
       <div className="mb-4">
         <div className="flex justify-between mb-1.5">
           <span className="text-[10px] text-text-muted tabular-nums">
-            {pool.totalDeposited} <span className="text-text-dim">/ {pool.hardCap} SOL</span>
+            {pool.totalDeposited} <span className="text-text-dim">/ {pool.hardCap} {currency}</span>
           </span>
           <span className="text-[10px] text-primary font-semibold tabular-nums">{Math.round(progress)}%</span>
         </div>
@@ -79,7 +88,7 @@ export default function BoardingCard({ pool, onClick }: BoardingCardProps) {
           </div>
           <div>
             <div className="text-[8px] text-text-dim tracking-[1px] mb-0.5">MAX</div>
-            <div className="text-xs text-white font-semibold">{pool.perWalletCap} SOL</div>
+            <div className="text-xs text-white font-semibold">{pool.perWalletCap} {currency}</div>
           </div>
         </div>
         {pool.status === 'active' && (
@@ -88,6 +97,6 @@ export default function BoardingCard({ pool, onClick }: BoardingCardProps) {
           </div>
         )}
       </div>
-    </div>
+    </Link>
   );
 }

@@ -1,10 +1,7 @@
 "use client";
+import Link from 'next/link';
 
-interface HomeTabProps {
-  onNavigate: (tab: string) => void;
-}
-
-export default function HomeTab({ onNavigate }: HomeTabProps) {
+export default function HomeTab() {
   return (
     <div className="animate-in">
       {/* Hero */}
@@ -43,12 +40,12 @@ export default function HomeTab({ onNavigate }: HomeTabProps) {
 
         {/* CTAs */}
         <div className="flex gap-4 mb-[70px]">
-          <button
-            onClick={() => onNavigate('ship')}
-            className="px-9 py-4 bg-gradient-to-br from-primary to-primary-dark text-bg-base border-none rounded-lg font-heading text-sm font-bold cursor-pointer tracking-[1px] shadow-[0_4px_30px_rgba(136,192,255,0.3)]"
+          <Link
+            href="/ship"
+            className="px-9 py-4 bg-gradient-to-br from-primary to-primary-dark text-bg-base border-none rounded-lg font-heading text-sm font-bold tracking-[1px] shadow-[0_4px_30px_rgba(136,192,255,0.3)] no-underline"
           >
             LAUNCH A VESSEL →
-          </button>
+          </Link>
           <button className="px-9 py-4 bg-transparent text-text-muted border border-border-primary rounded-lg font-mono text-xs cursor-pointer">
             VIEW DOCS
           </button>
@@ -160,12 +157,12 @@ export default function HomeTab({ onNavigate }: HomeTabProps) {
         <p className="text-[15px] text-text-muted mb-9">
           2 SOL. Zero extraction. Infinite LP. Navigate the stars.
         </p>
-        <button
-          onClick={() => onNavigate('ship')}
-          className="px-[50px] py-[18px] bg-gradient-to-br from-primary to-primary-dark text-bg-base border-none rounded-lg font-heading text-[15px] font-bold cursor-pointer shadow-[0_4px_35px_rgba(136,192,255,0.4)]"
+        <Link
+          href="/ship"
+          className="inline-block px-[50px] py-[18px] bg-gradient-to-br from-primary to-primary-dark text-bg-base border-none rounded-lg font-heading text-[15px] font-bold shadow-[0_4px_35px_rgba(136,192,255,0.4)] no-underline"
         >
           LAUNCH THE SHIPYARD →
-        </button>
+        </Link>
       </section>
     </div>
   );

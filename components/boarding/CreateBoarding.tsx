@@ -1,11 +1,14 @@
 "use client";
 import { useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useWallet } from '@solana/wallet-adapter-react';
-
-interface CreateBoardingProps {
-  onBack: () => void;
-  onCreate: () => void;
-}
+import { useAccount } from 'wagmi';
+import { PublicKey } from '@solana/web3.js';
+import { useChain } from '../../providers/ChainProvider';
+import { useSolanaTransactions } from '../../hooks/useSolanaTransactions';
+import { useEVMTransactions } from '../../hooks/useEVMTransactions';
+import { EXPLORER } from '../../lib/contracts';
 
 const MODES = {
   blitz:  { label: 'BLITZ',  duration: 0.5, icon: '💥', desc: '30 min. Narrative is hot, send it.' },
@@ -13,37 +16,83 @@ const MODES = {
   voyage: { label: 'VOYAGE', duration: 72,  icon: '🧭', desc: '72 hours. Let the crew assemble.' },
 } as const;
 
-export default function CreateBoarding({ onBack, onCreate }: CreateBoardingProps) {
-  const { connected } = useWallet();
+export default function CreateBoarding() {
+  const router = useRouter();
+  const { chain } = useChain();
+  const solWallet = useWallet();
+  const evmAccount = useAccount();
+  const solanaTx = useSolanaTransactions();
+  const evmTx = useEVMTransactions();
+
+  const connected = chain === 'base' ? evmAccount.isConnected : solWallet.connected;
+  const currency = chain === 'base' ? 'ETH' : 'SOL';
+  const explorer = chain === 'base' ? EXPLORER.base : EXPLORER.sol;
+
   const [step, setStep] = useState(1);
   const [tokenName, setTokenName] = useState('');
   const [tokenSymbol, setTokenSymbol] = useState('');
   const [tokenSupply, setTokenSupply] = useState('1000000000');
+  const [tokenMint, setTokenMint] = useState(''); // Solana mint address or EVM token address
   const [hardCap, setHardCap] = useState('80');
   const [perWalletCap, setPerWalletCap] = useState('2');
   const [mode, setMode] = useState<'blitz' | 'flash' | 'voyage'>('flash');
   const [access, setAccess] = useState<'public' | 'crew'>('public');
   const [crewList, setCrewList] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [txResult, setTxResult] = useState<{ tx: string; type: 'success' | 'error' } | null>(null);
 
   const duration = MODES[mode].duration;
+  const durationSeconds = duration * 3600;
   const minWallets = Math.ceil(parseFloat(hardCap || '0') / parseFloat(perWalletCap || '1'));
   const crewCount = crewList.split('\n').filter(l => l.trim()).length;
 
   const handleSubmit = async () => {
     if (!connected) return;
     setSubmitting(true);
-    // TODO: create_pool instruction via Anchor
-    setTimeout(() => { setSubmitting(false); onCreate(); }, 2000);
+    setTxResult(null);
+
+    try {
+      let result;
+      if (chain === 'base') {
+        result = await evmTx.createPool({
+          token: tokenMint,
+          hardCap: parseFloat(hardCap),
+          perWalletCap: parseFloat(perWalletCap),
+          duration: durationSeconds,
+          tokenSupply: BigInt(tokenSupply),
+          ticker: tokenSymbol,
+        });
+      } else {
+        result = await solanaTx.createPool({
+          tokenMint: new PublicKey(tokenMint),
+          hardCap: parseFloat(hardCap),
+          perWalletCap: parseFloat(perWalletCap),
+          duration: durationSeconds,
+          tokenSupply: parseInt(tokenSupply),
+          accessMode: access,
+          ticker: tokenSymbol,
+        });
+      }
+
+      setTxResult({ tx: result.tx, type: 'success' });
+      // Navigate to new pool after brief delay
+      setTimeout(() => {
+        const poolId = 'poolPda' in result ? result.poolPda : result.tx;
+        router.push(`/boarding/${chain}/${poolId}`);
+      }, 2000);
+    } catch (err: any) {
+      setTxResult({ tx: err.message || 'Transaction failed', type: 'error' });
+      setSubmitting(false);
+    }
   };
 
   const inputCls = "w-full p-3 bg-bg-input border border-border-primary rounded-lg text-white text-sm font-mono";
 
   return (
-    <div className="fade-up">
-      <button onClick={onBack} className="text-[11px] text-text-dim hover:text-primary transition-colors mb-6 cursor-pointer">
+    <div className="fade-up px-10 py-10 max-w-[1200px] mx-auto">
+      <Link href="/boarding" className="text-[11px] text-text-dim hover:text-primary transition-colors mb-6 inline-block no-underline">
         ← BACK
-      </button>
+      </Link>
 
       <h1 className="font-heading text-[24px] font-bold text-white mb-6">Create Boarding</h1>
 
@@ -70,6 +119,31 @@ export default function CreateBoarding({ onBack, onCreate }: CreateBoardingProps
         ))}
       </div>
 
+      {/* Tx result toast */}
+      {txResult && (
+        <div className={`p-3 mb-4 rounded-lg border text-[11px] ${
+          txResult.type === 'success'
+            ? 'bg-success/5 border-success/20 text-success'
+            : 'bg-burn/5 border-burn/20 text-burn'
+        }`}>
+          {txResult.type === 'success' ? (
+            <>
+              Pool created!{' '}
+              <a
+                href={explorer.tx(txResult.tx)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:opacity-80"
+              >
+                View on explorer →
+              </a>
+            </>
+          ) : (
+            <>{txResult.tx}</>
+          )}
+        </div>
+      )}
+
       {/* Form */}
       <div className="rounded-xl p-6 bg-bg-glass border border-[rgba(136,192,255,0.08)]">
 
@@ -91,10 +165,15 @@ export default function CreateBoarding({ onBack, onCreate }: CreateBoardingProps
                   placeholder="e.g. MOON" maxLength={10} className={inputCls} />
               </div>
               <div className="col-span-2">
+                <label className="block text-[8px] text-primary mb-1.5 tracking-[2px]">TOKEN MINT / ADDRESS *</label>
+                <input type="text" value={tokenMint} onChange={(e) => setTokenMint(e.target.value)}
+                  placeholder={chain === 'base' ? '0x...' : 'Solana mint address'} className={inputCls} />
+                <p className="text-[9px] text-text-dim mt-1">The token must be pre-minted and you must hold the supply.</p>
+              </div>
+              <div className="col-span-2">
                 <label className="block text-[8px] text-primary mb-1.5 tracking-[2px]">TOTAL SUPPLY *</label>
                 <input type="number" value={tokenSupply} onChange={(e) => setTokenSupply(e.target.value)}
                   placeholder="1000000000" className={inputCls} />
-                <p className="text-[9px] text-text-dim mt-1">All tokens go into the presale. On success, they pair with SOL on Raydium.</p>
               </div>
               <div>
                 <label className="block text-[8px] text-primary mb-1.5 tracking-[2px]">IMAGE</label>
@@ -120,11 +199,11 @@ export default function CreateBoarding({ onBack, onCreate }: CreateBoardingProps
             </h2>
             <div className="grid grid-cols-2 gap-4 mb-5">
               <div>
-                <label className="block text-[8px] text-primary mb-1.5 tracking-[2px]">HARD CAP (SOL)</label>
+                <label className="block text-[8px] text-primary mb-1.5 tracking-[2px]">HARD CAP ({currency})</label>
                 <input type="number" value={hardCap} onChange={(e) => setHardCap(e.target.value)} className={inputCls} />
               </div>
               <div>
-                <label className="block text-[8px] text-primary mb-1.5 tracking-[2px]">PER WALLET (SOL)</label>
+                <label className="block text-[8px] text-primary mb-1.5 tracking-[2px]">PER WALLET ({currency})</label>
                 <input type="number" value={perWalletCap} onChange={(e) => setPerWalletCap(e.target.value)} className={inputCls} />
               </div>
             </div>
@@ -151,47 +230,51 @@ export default function CreateBoarding({ onBack, onCreate }: CreateBoardingProps
               ))}
             </div>
 
-            {/* Access */}
-            <label className="block text-[8px] text-primary mb-2 tracking-[2px]">ACCESS</label>
-            <div className="grid grid-cols-2 gap-3">
-              <div
-                onClick={() => setAccess('public')}
-                className={`p-3.5 rounded-xl cursor-pointer transition-all duration-200 ${
-                  access === 'public' ? 'bg-primary/10 border-2 border-primary' : 'bg-bg-input border border-border-primary hover:border-border-accent'
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span>🌊</span>
-                  <span className={`font-heading text-sm font-bold ${access === 'public' ? 'text-primary' : 'text-white'}`}>PUBLIC</span>
+            {/* Access — only show for Solana (EVM contract doesn't support crew mode) */}
+            {chain === 'sol' && (
+              <>
+                <label className="block text-[8px] text-primary mb-2 tracking-[2px]">ACCESS</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div
+                    onClick={() => setAccess('public')}
+                    className={`p-3.5 rounded-xl cursor-pointer transition-all duration-200 ${
+                      access === 'public' ? 'bg-primary/10 border-2 border-primary' : 'bg-bg-input border border-border-primary hover:border-border-accent'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span>🌊</span>
+                      <span className={`font-heading text-sm font-bold ${access === 'public' ? 'text-primary' : 'text-white'}`}>PUBLIC</span>
+                    </div>
+                    <div className="text-[9px] text-text-muted">Open to everyone</div>
+                  </div>
+                  <div
+                    onClick={() => setAccess('crew')}
+                    className={`p-3.5 rounded-xl cursor-pointer transition-all duration-200 ${
+                      access === 'crew' ? 'bg-[#34d399]/10 border-2 border-[#34d399]' : 'bg-bg-input border border-border-primary hover:border-border-accent'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span>🔒</span>
+                      <span className={`font-heading text-sm font-bold ${access === 'crew' ? 'text-[#34d399]' : 'text-white'}`}>CREW</span>
+                    </div>
+                    <div className="text-[9px] text-text-muted">Invite-only whitelist</div>
+                  </div>
                 </div>
-                <div className="text-[9px] text-text-muted">Open to everyone</div>
-              </div>
-              <div
-                onClick={() => setAccess('crew')}
-                className={`p-3.5 rounded-xl cursor-pointer transition-all duration-200 ${
-                  access === 'crew' ? 'bg-[#34d399]/10 border-2 border-[#34d399]' : 'bg-bg-input border border-border-primary hover:border-border-accent'
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span>🔒</span>
-                  <span className={`font-heading text-sm font-bold ${access === 'crew' ? 'text-[#34d399]' : 'text-white'}`}>CREW</span>
-                </div>
-                <div className="text-[9px] text-text-muted">Invite-only whitelist</div>
-              </div>
-            </div>
 
-            {access === 'crew' && (
-              <div className="mt-3 p-3.5 bg-bg-input rounded-xl border border-[#34d399]/15">
-                <label className="block text-[8px] text-[#34d399] mb-1.5 tracking-[2px]">CREW LIST</label>
-                <textarea
-                  value={crewList}
-                  onChange={(e) => setCrewList(e.target.value)}
-                  placeholder={"Wallet addresses or @twitter, one per line"}
-                  rows={4}
-                  className="w-full p-2.5 bg-[rgba(5,10,14,0.8)] border border-[#34d399]/10 rounded-lg text-white text-xs font-mono resize-none"
-                />
-                <p className="text-[9px] text-text-dim mt-1">{crewCount} member{crewCount !== 1 ? 's' : ''}</p>
-              </div>
+                {access === 'crew' && (
+                  <div className="mt-3 p-3.5 bg-bg-input rounded-xl border border-[#34d399]/15">
+                    <label className="block text-[8px] text-[#34d399] mb-1.5 tracking-[2px]">CREW LIST</label>
+                    <textarea
+                      value={crewList}
+                      onChange={(e) => setCrewList(e.target.value)}
+                      placeholder={"Wallet addresses or @twitter, one per line"}
+                      rows={4}
+                      className="w-full p-2.5 bg-[rgba(5,10,14,0.8)] border border-[#34d399]/10 rounded-lg text-white text-xs font-mono resize-none"
+                    />
+                    <p className="text-[9px] text-text-dim mt-1">{crewCount} member{crewCount !== 1 ? 's' : ''}</p>
+                  </div>
+                )}
+              </>
             )}
 
             {/* Derived */}
@@ -203,11 +286,11 @@ export default function CreateBoarding({ onBack, onCreate }: CreateBoardingProps
                 </div>
                 <div>
                   <div className="text-[8px] text-text-dim tracking-[1px] mb-0.5">TO LP (92.5%)</div>
-                  <div className="text-base font-heading font-bold text-primary tabular-nums">{(parseFloat(hardCap || '0') * 0.925).toFixed(1)} SOL</div>
+                  <div className="text-base font-heading font-bold text-primary tabular-nums">{(parseFloat(hardCap || '0') * 0.925).toFixed(1)} {currency}</div>
                 </div>
                 <div>
                   <div className="text-[8px] text-text-dim tracking-[1px] mb-0.5">YOU GET (2.5%)</div>
-                  <div className="text-base font-heading font-bold text-success tabular-nums">{(parseFloat(hardCap || '0') * 0.025).toFixed(1)} SOL</div>
+                  <div className="text-base font-heading font-bold text-success tabular-nums">{(parseFloat(hardCap || '0') * 0.025).toFixed(1)} {currency}</div>
                 </div>
               </div>
             </div>
@@ -226,14 +309,15 @@ export default function CreateBoarding({ onBack, onCreate }: CreateBoardingProps
               <div className="p-4 bg-bg-input rounded-xl border border-[rgba(136,192,255,0.08)]">
                 <div className="text-[8px] text-text-dim tracking-[2px] mb-3">MANIFEST</div>
                 {[
+                  { k: 'Chain',    v: chain === 'base' ? 'Base' : 'Solana' },
                   { k: 'Token',    v: `${tokenName} ($${tokenSymbol})` },
                   { k: 'Supply',   v: `${(parseInt(tokenSupply || '0') / 1e6).toFixed(0)}M` },
-                  { k: 'Hard Cap', v: `${hardCap} SOL` },
-                  { k: 'Per Wallet', v: `${perWalletCap} SOL` },
+                  { k: 'Hard Cap', v: `${hardCap} ${currency}` },
+                  { k: 'Per Wallet', v: `${perWalletCap} ${currency}` },
                   { k: 'Wallets',  v: `${minWallets} minimum` },
                   { k: 'Mode',     v: `${MODES[mode].icon} ${MODES[mode].label} (${duration < 1 ? '30m' : duration + 'h'})` },
-                  { k: 'Access',   v: access === 'crew' ? `🔒 Crew (${crewCount})` : '🌊 Public' },
-                  { k: 'Creation Fee', v: '0.5 SOL (non-refundable)' },
+                  { k: 'Access',   v: access === 'crew' && chain === 'sol' ? `🔒 Crew (${crewCount})` : '🌊 Public' },
+                  { k: 'Creation Fee', v: `0.5 ${currency} (non-refundable)` },
                 ].map((row, i) => (
                   <div key={i} className="flex justify-between py-2 border-b border-[rgba(136,192,255,0.06)] last:border-0">
                     <span className="text-[10px] text-text-muted">{row.k}</span>
@@ -249,7 +333,7 @@ export default function CreateBoarding({ onBack, onCreate }: CreateBoardingProps
                   <div className="text-[8px] text-burn tracking-[2px] mb-2">CREATION FEE</div>
                   <div className="flex justify-between items-baseline">
                     <span className="text-[10px] text-text-muted">Non-refundable</span>
-                    <span className="text-base font-heading font-bold text-burn">0.5 SOL</span>
+                    <span className="text-base font-heading font-bold text-burn">0.5 {currency}</span>
                   </div>
                   <p className="text-[9px] text-text-dim mt-1.5">Paid upfront to open the pool. You get it back 8x if funded (5% creator fee).</p>
                 </div>
@@ -257,18 +341,18 @@ export default function CreateBoarding({ onBack, onCreate }: CreateBoardingProps
                 <div className="glow p-4 bg-gradient-to-br from-[rgba(136,192,255,0.1)] to-[rgba(136,192,255,0.03)] border border-primary/15 rounded-xl mb-3">
                   <div className="text-[8px] text-primary tracking-[2px] mb-2">ON SUCCESS</div>
                   <div className="space-y-1.5">
-                    <div className="text-[7px] text-text-dim tracking-[1px] mb-1">SOL SPLIT</div>
+                    <div className="text-[7px] text-text-dim tracking-[1px] mb-1">{currency} SPLIT</div>
                     <div className="flex justify-between">
-                      <span className="text-[9px] text-text-dim">92.5% → Raydium LP</span>
-                      <span className="text-[9px] text-primary font-semibold">{(parseFloat(hardCap) * 0.925).toFixed(1)} SOL</span>
+                      <span className="text-[9px] text-text-dim">92.5% → LP</span>
+                      <span className="text-[9px] text-primary font-semibold">{(parseFloat(hardCap) * 0.925).toFixed(1)} {currency}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-[9px] text-text-dim">5% → Platform</span>
-                      <span className="text-[9px] text-white">{(parseFloat(hardCap) * 0.05).toFixed(1)} SOL</span>
+                      <span className="text-[9px] text-white">{(parseFloat(hardCap) * 0.05).toFixed(1)} {currency}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-[9px] text-text-dim">2.5% → You</span>
-                      <span className="text-[9px] text-success font-semibold">{(parseFloat(hardCap) * 0.025).toFixed(1)} SOL</span>
+                      <span className="text-[9px] text-success font-semibold">{(parseFloat(hardCap) * 0.025).toFixed(1)} {currency}</span>
                     </div>
                     <div className="h-px bg-[rgba(136,192,255,0.08)] my-1" />
                     <div className="text-[7px] text-text-dim tracking-[1px] mb-1">TOKEN SPLIT</div>
@@ -295,12 +379,17 @@ export default function CreateBoarding({ onBack, onCreate }: CreateBoardingProps
                   onClick={handleSubmit}
                   disabled={!connected || submitting}
                   className={`w-full py-3.5 rounded-lg font-heading text-sm font-bold tracking-[1px] transition-all ${
-                    connected
+                    connected && !submitting
                       ? 'bg-gradient-to-br from-primary to-primary-dark text-bg-base cursor-pointer shadow-[0_2px_20px_rgba(136,192,255,0.3)]'
                       : 'bg-primary/8 text-text-dim cursor-not-allowed border border-border-primary'
                   }`}
                 >
-                  {!connected ? 'CONNECT WALLET' : submitting ? 'LAUNCHING...' : 'LAUNCH BOARDING'}
+                  {!connected ? 'CONNECT WALLET' : submitting ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <span className="w-3 h-3 border-2 border-bg-base/30 border-t-bg-base rounded-full animate-spin" />
+                      LAUNCHING...
+                    </span>
+                  ) : 'LAUNCH BOARDING'}
                 </button>
                 <p className="text-[8px] text-text-dim text-center mt-1.5">Mint + pool created in one tx</p>
               </div>
@@ -322,7 +411,7 @@ export default function CreateBoarding({ onBack, onCreate }: CreateBoardingProps
           {step < 3 && (
             <button
               onClick={() => setStep(step + 1)}
-              disabled={step === 1 && (!tokenName || !tokenSymbol)}
+              disabled={step === 1 && (!tokenName || !tokenSymbol || !tokenMint)}
               className="px-5 py-2.5 bg-gradient-to-br from-primary to-primary-dark text-bg-base border-none rounded-lg text-[10px] font-semibold cursor-pointer"
             >
               CONTINUE →

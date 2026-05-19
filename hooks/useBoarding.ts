@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from 'react';
+import type { Chain } from '../providers/ChainProvider';
 
 export type PoolStatus = 'active' | 'succeeded' | 'failed' | 'launched';
 export type BoardingMode = 'blitz' | 'flash' | 'voyage';
@@ -22,6 +23,7 @@ export interface BoardingPool {
   tokenSupply: number;
   mode: BoardingMode;
   access: AccessMode;
+  chain?: Chain;
 }
 
 export interface UserDeposit {
@@ -30,7 +32,7 @@ export interface UserDeposit {
   claimed: boolean;
 }
 
-// Mock pools — will be replaced with on-chain fetching
+// Mock pools — used by default; switch to useMultichainBoardingPools() for live data
 const MOCK_POOLS: BoardingPool[] = [
   {
     publicKey: '7xKm3pool1',
@@ -41,13 +43,14 @@ const MOCK_POOLS: BoardingPool[] = [
     hardCap: 80,
     perWalletCap: 2,
     minWallets: 40,
-    deadline: Math.floor(Date.now() / 1000) + 4 * 3600,  // 4h left
+    deadline: Math.floor(Date.now() / 1000) + 4 * 3600,
     status: 'active',
     totalDeposited: 52,
     participantCount: 28,
     tokenSupply: 1_000_000_000,
     mode: 'flash',
     access: 'public',
+    chain: 'sol',
   },
   {
     publicKey: '4yMk2pool2',
@@ -58,13 +61,14 @@ const MOCK_POOLS: BoardingPool[] = [
     hardCap: 120,
     perWalletCap: 3,
     minWallets: 40,
-    deadline: Math.floor(Date.now() / 1000) + 58 * 3600,  // ~2.5 days
+    deadline: Math.floor(Date.now() / 1000) + 58 * 3600,
     status: 'active',
     totalDeposited: 27,
     participantCount: 11,
     tokenSupply: 500_000_000,
     mode: 'voyage',
     access: 'crew',
+    chain: 'sol',
   },
   {
     publicKey: '2zLn3pool3',
@@ -82,6 +86,7 @@ const MOCK_POOLS: BoardingPool[] = [
     tokenSupply: 2_000_000_000,
     mode: 'flash',
     access: 'public',
+    chain: 'sol',
   },
   {
     publicKey: '8pJq4pool4',
@@ -99,6 +104,7 @@ const MOCK_POOLS: BoardingPool[] = [
     tokenSupply: 750_000_000,
     mode: 'voyage',
     access: 'public',
+    chain: 'sol',
   },
   {
     publicKey: '5nHd5pool5',
@@ -116,6 +122,7 @@ const MOCK_POOLS: BoardingPool[] = [
     tokenSupply: 1_500_000_000,
     mode: 'flash',
     access: 'crew',
+    chain: 'base',
   },
   {
     publicKey: '9gTp6pool6',
@@ -133,6 +140,7 @@ const MOCK_POOLS: BoardingPool[] = [
     tokenSupply: 420_000_000,
     mode: 'flash',
     access: 'public',
+    chain: 'base',
   },
   {
     publicKey: '3bRt7pool7',
@@ -143,13 +151,14 @@ const MOCK_POOLS: BoardingPool[] = [
     hardCap: 40,
     perWalletCap: 1,
     minWallets: 40,
-    deadline: Math.floor(Date.now() / 1000) + 18 * 60,  // 18 min left
+    deadline: Math.floor(Date.now() / 1000) + 18 * 60,
     status: 'active',
     totalDeposited: 29,
     participantCount: 31,
     tokenSupply: 1_000_000_000,
     mode: 'blitz',
     access: 'public',
+    chain: 'sol',
   },
 ];
 
@@ -158,7 +167,8 @@ export function useBoardingPools() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // TODO: Replace with on-chain getProgramAccounts
+    // Always use mock data for now. Set NEXT_PUBLIC_USE_MOCK=false and
+    // use useMultichainBoardingPools() directly for live on-chain data.
     const timer = setTimeout(() => {
       setPools(MOCK_POOLS);
       setLoading(false);
@@ -170,17 +180,18 @@ export function useBoardingPools() {
 }
 
 export function useBoardingPool(poolId: string | null) {
+  const { pools, loading: poolsLoading } = useBoardingPools();
   const [pool, setPool] = useState<BoardingPool | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!poolId) { setPool(null); setLoading(false); return; }
-    const timer = setTimeout(() => {
-      setPool(MOCK_POOLS.find(p => p.publicKey === poolId) || null);
-      setLoading(false);
-    }, 200);
-    return () => clearTimeout(timer);
-  }, [poolId]);
+    if (poolsLoading) return;
+
+    const found = pools.find(p => p.publicKey === poolId) || null;
+    setPool(found);
+    setLoading(false);
+  }, [poolId, pools, poolsLoading]);
 
   return { pool, loading };
 }

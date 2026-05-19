@@ -3,9 +3,10 @@ import { useState } from 'react';
 import { type BoardingPool } from '../../hooks/useBoarding';
 import BoardingCard from './BoardingCard';
 
-type Filter = 'all' | 'active' | 'succeeded' | 'failed' | 'launched';
+type StatusFilter = 'all' | 'active' | 'succeeded' | 'failed' | 'launched';
+type ChainFilter = 'all' | 'sol' | 'base';
 
-const FILTERS: { id: Filter; label: string }[] = [
+const STATUS_FILTERS: { id: StatusFilter; label: string }[] = [
   { id: 'all', label: 'ALL' },
   { id: 'active', label: 'LIVE' },
   { id: 'succeeded', label: 'FUNDED' },
@@ -13,33 +14,64 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: 'failed', label: 'FAILED' },
 ];
 
+const CHAIN_FILTERS: { id: ChainFilter; label: string }[] = [
+  { id: 'all', label: 'ALL' },
+  { id: 'sol', label: 'SOL' },
+  { id: 'base', label: 'BASE' },
+];
+
 interface BoardingListProps {
   pools: BoardingPool[];
   loading: boolean;
-  onSelectPool: (pool: BoardingPool) => void;
 }
 
-export default function BoardingList({ pools, loading, onSelectPool }: BoardingListProps) {
-  const [filter, setFilter] = useState<Filter>('all');
-  const filtered = filter === 'all' ? pools : pools.filter(p => p.status === filter);
+export default function BoardingList({ pools, loading }: BoardingListProps) {
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [chainFilter, setChainFilter] = useState<ChainFilter>('all');
+
+  const filtered = pools.filter(p => {
+    if (statusFilter !== 'all' && p.status !== statusFilter) return false;
+    if (chainFilter !== 'all' && p.chain !== chainFilter) return false;
+    return true;
+  });
 
   return (
     <div className="fade-in">
       {/* Filters */}
-      <div className="flex gap-1.5 mb-6">
-        {FILTERS.map(f => (
-          <button
-            key={f.id}
-            onClick={() => setFilter(f.id)}
-            className={`px-4 py-2 rounded-md text-[10px] font-mono tracking-[1px] transition-all duration-200 ${
-              filter === f.id
-                ? 'bg-primary/12 text-primary border border-primary/30'
-                : 'bg-transparent text-text-dim border border-transparent hover:text-text-muted'
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
+      <div className="flex items-center gap-4 mb-6">
+        <div className="flex gap-1.5">
+          {STATUS_FILTERS.map(f => (
+            <button
+              key={f.id}
+              onClick={() => setStatusFilter(f.id)}
+              className={`px-4 py-2 rounded-md text-[10px] font-mono tracking-[1px] transition-all duration-200 ${
+                statusFilter === f.id
+                  ? 'bg-primary/12 text-primary border border-primary/30'
+                  : 'bg-transparent text-text-dim border border-transparent hover:text-text-muted'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="w-px h-5 bg-border-primary" />
+
+        <div className="flex gap-1">
+          {CHAIN_FILTERS.map(f => (
+            <button
+              key={f.id}
+              onClick={() => setChainFilter(f.id)}
+              className={`px-3 py-1.5 rounded-md text-[10px] font-mono tracking-[1px] transition-all duration-200 ${
+                chainFilter === f.id
+                  ? 'bg-primary/12 text-primary border border-primary/30'
+                  : 'bg-transparent text-text-dim border border-transparent hover:text-text-muted'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Grid */}
@@ -56,11 +88,7 @@ export default function BoardingList({ pools, loading, onSelectPool }: BoardingL
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 stagger">
           {filtered.map(pool => (
-            <BoardingCard
-              key={pool.publicKey}
-              pool={pool}
-              onClick={() => onSelectPool(pool)}
-            />
+            <BoardingCard key={`${pool.chain}-${pool.publicKey}`} pool={pool} />
           ))}
         </div>
       )}
